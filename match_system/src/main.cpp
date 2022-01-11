@@ -16,6 +16,7 @@
 #include <condition_variable>
 #include <queue>
 #include <vector>
+#include <unistd.h>
 using namespace std;
 
 using namespace ::apache::thrift;
@@ -61,11 +62,22 @@ class Pool {
 
         void match() {
             while (users.size() > 1) {
-                auto a = users[0], b = users[1];
-                users.erase(users.begin());
-                users.erase(users.begin());
+                sort(users.begin(), users.end(), [&](User& a, User b){
+                    return a.score < b.score;
+                        });
 
-                save_result(a.id, b.id);
+                bool flag = true;
+                for (uint32_t i = 1; i < users.size(); i ++) {
+                    auto a = users[i - 1], b = users[i];
+                    if (b.score - a.score <= 50) {
+                        users.erase(users.begin() + i - 1, users.begin() + i + 1);
+                        save_result(a.id, b.id);
+                        flag = false;
+                        break;
+                    }
+                }
+
+                if (flag) break;
             }
         }
 
@@ -133,7 +145,11 @@ void consume_task() {
     while (true) {
         unique_lock<mutex> lck(message_queue.m);
         if (message_queue.q.empty()) {
-            message_queue.cv.wait(lck);
+
+            //message_queue.cv.wait(lck);
+            lck.unlock();
+            pool.match();
+            sleep(1);
         }
         else {
             auto task = message_queue.q.front();
